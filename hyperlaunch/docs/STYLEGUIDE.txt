@@ -1,0 +1,262 @@
+========================================
+HYPERLIQUID LAUNCHPAD — STYLE GUIDE + 3 SCREENS (AGENT SPEC)
+========================================
+
+Context
+- Visual direction: OpenSea-grade polish, LaunchMyNFT information hierarchy, Hyperliquid’s dark/fintech vibe.
+- Tooling assumption: Next.js + Tailwind + shadcn/ui (or headless), RainbowKit/wagmi/viem, Firebase Hosting + Firestore.
+
+References
+- HyperEVM (Mainnet chainId 999, RPC, explorer) — for network badges and links.
+- OpenSea color cues (professional blues) — align CTA hue.
+- LaunchMyNFT page flow (Explore / Mint) — layout parity.
+- Wallet connect UX (RainbowKit).
+- WCAG AA contrast constraints (4.5:1 body, 3:1 large text).
+
+[Sources: HyperEVM docs, ChainList 999, OpenSea palette/home, LaunchMyNFT explore, RainbowKit docs, WCAG G18, WebAIM checker]
+-- see citations in dev notes.
+
+========================================
+1) DESIGN TOKENS (tailwind/csstokens)
+========================================
+
+Color (dark theme baseline):
+  --bg/0:    #0A0D0B    // page background
+  --bg/1:    #0F1412    // cards
+  --bg/2:    #141A18    // raised / hovers
+  --line:    #24302B    // borders/dividers
+  --text/hi: #F2F5F4
+  --text/md: #C7D0CD
+  --text/lo: #97A6A0
+
+Primary CTA (OpenSea-adjacent blue):
+  --brand/600: #0F7AEF
+  --brand/500: #2A88F1
+  --brand/hover: #0D6AD1
+
+Hyperliquid accent (teal/green; use sparingly):
+  --hl/600: #0D6C64
+  --hl/500: #118578
+  --hl/300: #3DB7AB
+
+Semantic:
+  --success: #0FB381
+  --warning: #F2B705
+  --error:   #FF4D4F
+  --info:    #2AA1FF
+
+Overlays/Shadows:
+  --overlay/70: rgba(2,6,4,.70)
+  --shadow/24:  rgba(0,0,0,.24)
+
+Typography:
+  - UI body: Inter, 16px base; Body lh 1.5
+  - Display scale (rem): H1 2.0, H2 1.5, H3 1.25, Body 1.0, Small .875, Micro .75
+  - Numbers: JetBrains Mono (tabular) for amounts / prices / token IDs
+
+Spacing / Radius / Motion:
+  - 8pt grid: 8, 12, 16, 24, 32, 40, 48, 64
+  - Radius: 8px (cards), 16px (hero cards)
+  - Motion: 120–160ms small, 240ms modals (ease: cubic-bezier(.2,.8,.2,1))
+
+Accessibility (required):
+  - Contrast ≥ 4.5:1 (body), ≥ 3:1 (large)
+  - Visible focus ring in --brand/500
+  - Disabled != just low contrast; include tooltip reason
+
+Tailwind token mapping (example):
+  theme.extend.colors = {
+    bg: { 0:'#0A0D0B', 1:'#0F1412', 2:'#141A18' },
+    line:'#24302B',
+    text:{ hi:'#F2F5F4', md:'#C7D0CD', lo:'#97A6A0' },
+    brand:{ 400:'#4A99F3', 500:'#2A88F1', 600:'#0F7AEF', hover:'#0D6AD1' },
+    hl:{ 300:'#3DB7AB', 500:'#118578', 600:'#0D6C64' },
+    success:'#0FB381', warning:'#F2B705', error:'#FF4D4F', info:'#2AA1FF'
+  }
+
+========================================
+2) GLOBAL LAYOUT COMPONENTS
+========================================
+IDs are important; don’t rename.
+
+<AppShell id="app-shell">
+  <TopNav id="top-nav">
+    - Left: Logo/Wordmark
+    - Right: <NetworkBadge id="network-999" text="HyperEVM · 999" />, <ConnectButton />
+  </TopNav>
+  <main id="content" />
+  <ToastRegion id="toasts" />
+</AppShell>
+
+Utilities:
+- .page-wrap: mx-auto max-w-[1200px] px-6 sm:px-8
+- .card: rounded-xl bg-bg/1 border border-line shadow-[0_8px_24px_rgba(0,0,0,0.24)]
+- .btn-primary: bg-brand/600 hover:bg-brand/hover text-white rounded-lg
+- .btn-ghost: bg-transparent text-text/hi hover:bg-bg/2 border border-line
+
+========================================
+3) SCREEN 1 — LANDING / HERO
+========================================
+Route: "/"
+Component: <LandingHero id="landing-hero" />
+
+Layout:
+- TopNav (sticky) over translucent bg (backdrop-blur)
+- Hero section: min-h-[88vh], centered stack
+- Headline (H1): “Launch NFT Collections on HyperEVM”
+- Subhead: one sentence value prop
+- CTA primary: “Start Creating” → /create
+- Secondary link row: Explore, Docs
+- Below hero: 3 feature cards (IPFS uploads / Factory+Proxy / Manage phases)
+
+Structure (DOM order):
+<section id="hero" class="flex items-center">
+  <div class="page-wrap text-center">
+    <h1 class="text-text/hi text-[2rem] sm:text-[2.5rem] font-semibold">…</h1>
+    <p class="mt-4 text-text/md max-w-[720px] mx-auto">…</p>
+    <div class="mt-8 flex items-center justify-center gap-3">
+      <a id="cta-start" href="/create" class="btn-primary px-6 py-3">Start Creating</a>
+      <a id="cta-explore" href="/explore" class="btn-ghost px-5 py-3">Explore</a>
+    </div>
+    <div class="mt-16 grid grid-cols-1 sm:grid-cols-3 gap-6">
+      <FeatureCard id="feat-ipfs" />
+      <FeatureCard id="feat-factory" />
+      <FeatureCard id="feat-phases" />
+    </div>
+  </div>
+</section>
+
+Acceptance (must pass):
+- A11y: heading structure H1→H2, button contrast ≥ 4.5:1
+- Connected or not, NetworkBadge is visible
+- CTA navigates to /create
+- Responsive: 320px–1440px; feature grid collapses to 1 col on <640px
+
+========================================
+4) SCREEN 2 — CREATE WIZARD (STEP: UPLOAD)
+========================================
+Route: "/create/upload" (or /create?step=upload)
+Components:
+  <CreateStepper id="create-stepper" steps="Details,Upload,Deploy,Setup" active="Upload" />
+  <UploadPanel id="upload-panel" />
+  <UploadRail id="upload-rail" /> // sticky right rail
+
+Layout:
+<div class="page-wrap grid grid-cols-1 lg:grid-cols-[1fr_360px] gap-8">
+  <section id="upload-panel" class="space-y-6">
+    <Dropzone id="dropzone" accept="folder" class="card p-6 border-dashed" />
+    <AssetGrid id="asset-grid" class="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-4" />
+    <EditModal id="asset-edit" />   // opens on thumbnail click
+  </section>
+  <aside id="upload-rail" class="lg:sticky lg:top-6 space-y-4">
+    <ProgressBar id="upload-progress" />
+    <CidField id="cid-assets" label="Assets CID" copyable />
+    <CidField id="cid-meta" label="Metadata CID" copyable />
+    <BaseUriSuggest id="baseuri" value="ipfs://{metadataCid}/" />
+    <Button id="continue" variant="primary" disabled-until="cids-present">Continue</Button>
+  </aside>
+</div>
+
+Behavior:
+- Drag-drop entire folder (images + metadata). Show thumbnails as they index.
+- Start upload -> ProgressBar streams. On success, print assetsCid & metadataCid.
+- Auto-suggest baseURI from metadataCid. Allow user override later.
+- “Continue” disabled until both CIDs exist.
+
+Acceptance:
+- Handles >1k assets without jank (virtualized grid)
+- Progress resilient to transient failures (retry chunk)
+- CIDs copy buttons work; values persisted in local draft (Firestore)
+- Keyboard access: dropzone focusable; modal reachable via Enter
+
+========================================
+5) SCREEN 3 — PUBLIC MINT PAGE
+========================================
+Route: "/collection/[address]"
+Components:
+  <HeroBanner id="hero-banner" />
+  <AvatarInfoCard id="info-card" />
+  <MintPanel id="mint-panel" />
+  <PhaseTimeline id="timeline" />
+  <NftPreview id="last-minted" />
+  <NftGrid id="minted-grid" />
+
+Layout:
+<header id="hero" class="relative">
+  <HeroBanner class="h-[36vh] bg-cover bg-center" />
+  <AvatarInfoCard class="page-wrap -mt-12 relative z-10 max-w-[960px]" />
+</header>
+
+<main class="page-wrap grid grid-cols-1 lg:grid-cols-[1fr_360px] gap-8 mt-8">
+  <section>
+    <PhaseTimeline />
+    <NftPreview class="mt-6" />
+    <NftGrid class="mt-6 grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-4" />
+  </section>
+  <aside class="lg:sticky lg:top-8">
+    <MintPanel>
+      - Price (mono), qty stepper, Connect/Mint button
+      - If not active: disabled + countdown; if sold out: Sold Out
+      - Link: “View Contract” → explorer
+    </MintPanel>
+  </aside>
+</main>
+
+Acceptance:
+- Mint button shows proper state by phase (Allowlist/Public/Ended)
+- Price uses monospaced font; network badge shows HyperEVM · 999
+- Explorer links point to hyperevmscan
+- Last minted preview updates on new mint events or index
+- Grid paginates; lazy loads; keeps 60fps scroll on desktop
+
+========================================
+6) DEV TASKS TO MAKE THESE RENDER
+========================================
+Style tokens:
+  - Create /styles/tokens.css (or Tailwind theme) with colors/type/spacing above.
+  - Add focus ring utilities (focus:outline-none focus:ring-2 ring-brand/500).
+
+Global shell:
+  - Implement <AppShell/> with TopNav (ConnectButton from RainbowKit or existing connector).
+  - NetworkBadge should read chainId and label “HyperEVM · 999”.
+
+Landing:
+  - Build <LandingHero/> per spec; wire CTA to /create.
+
+Create/Upload:
+  - Implement file indexing (images + metadata), virtualization for AssetGrid.
+  - Integrate Pinata upload; emit assetsCid/metadataCid to Firestore draft doc.
+  - Disable “Continue” until CIDs present.
+
+Mint page:
+  - Read sale config to calculate phase gating (public/allowlist windows).
+  - Show “Connect” state; after connect, “Mint” with correct `value`.
+  - Last minted preview: subscribe to Minted events or read totalSupply+tokenURI.
+
+Accessibility QA:
+  - Validate contrast for all button/text pairs with checker.
+  - Tab order through hero, cards, grid items, modals.
+  - Reduce motion respected.
+
+========================================
+7) TEST CHECKLIST (CI/PR BLOCKERS)
+========================================
+- [ ] Lighthouse ≥ 90 (Accessibility)
+- [ ] Button contrast ≥ 4.5:1; link hover ≥ 3:1
+- [ ] Keyboard: reach CTA, dropzone, modal controls
+- [ ] Mobile 375×812: no horizontal scroll
+- [ ] Upload 1k assets: page remains responsive; thumbnails virtualized
+- [ ] NetworkBadge shows “HyperEVM · 999” always
+- [ ] Explorer links resolve to hyperevmscan for contract/tx hashes
+- [ ] Mint panel states: Not connected → Connect; Connected+inactive → Disabled+reason; Active → Mint enabled; Sold Out → Disabled+label
+- [ ] Firestore draft persists CIDs/baseURI and reloads on refresh
+
+========================================
+DEV NOTES (CITATIONS)
+========================================
+- HyperEVM (Mainnet 999 / RPC) docs: hyperliquid docs; ChainList references. [:contentReference[oaicite:0]{index=0}]
+- OpenSea palette (professional blues): #1868B7, #2081E2, etc. [:contentReference[oaicite:1]{index=1}]
+- OpenSea homepage principles (simple, curated discovery): [:contentReference[oaicite:2]{index=2}]
+- LaunchMyNFT primary/explore pages (layout cues): [:contentReference[oaicite:3]{index=3}]
+- RainbowKit (wallet connect provider): [:contentReference[oaicite:4]{index=4}]
+- WCAG contrast rules & checker: [:contentReference[oaicite:5]{index=5}]

@@ -1,0 +1,15 @@
+# Project: Hyperliquid NFT Launchpad (UI-first)
+- Always read and follow @docs/UI-BLUEPRINT.txt as the source of truth for routes, components, and the linear task list.
+- Always apply tokens and UI behavior from @docs/STYLEGUIDE.txt.
+- For allowlist + forms, use code from @docs/MERKLE-ZOD.txt verbatim (adapt paths only).
+- Never invent pages/components not listed in the blueprint; add deltas to the blueprint first.
+- Work in small PR-sized tasks; finish the current task completely before starting the next.
+
+Conventions:
+- Tech stack: Next.js + Tailwind + shadcn/ui (or headless), wagmi/viem (wallet from our repo), Firebase Hosting + Firestore.
+- A11y: enforce WCAG AA contrast + keyboard nav. Tokens from STYLEGUIDE are mandatory.
+- Explorer links = Hyperevmscan; Chain = HyperEVM 999.
+
+Output Requirements:
+- For each task: create files, export components, and add minimal usage example.
+- Provide a short task summary + any TODOs at the end of each change.

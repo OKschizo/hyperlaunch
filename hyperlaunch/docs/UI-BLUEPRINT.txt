@@ -1,0 +1,499 @@
+# Hyperliquid NFT Launchpad — UI Blueprint + Agent Build Spec
+
+This document gives your agent a **UI-first plan** to implement the entire front end (routes, components, states, and wireframes), plus a **one‑page Build Spec** with data model, envs, and a linear task list. Follow in order.
+
+---
+
+## A) Information Architecture (IA)
+
+**Primary routes**
+
+* `/` — Landing (animated logo hero, CTA → Start Creating)
+* `/create` — 4‑step wizard: Details → Upload → Deploy → Set Up Collection
+* `/dashboard` — Collections grid (owner’s collections from Firestore)
+* `/dashboard/[address]/manage-collection` — Owner‑gated controls (allowlist/public/pause, feature on Explore)
+* `/dashboard/[address]/manage-mint` — Owner‑gated mint page editor (hero, avatar/info, phases, preview, minted grid)
+* `/explore` — Public directory of opted‑in collections + featured carousel
+* `/collection/[address]` — Public mint page (OpenSea‑style hero, mint widget, last minted, paginated grid)
+
+**Global layout**
+
+* **AppShell**: TopNav (brand + ConnectButton), optional left Sidebar for dashboard screens, main content pane, Toaster.
+
+---
+
+## B) Component Map (build in this order)
+
+### 1) Shell & Wallet
+
+* `AppShell`: container; holds TopNav/Sidebar/Outlet.
+* `TopNav`: brand logo, ConnectButton, NetworkBadge (HYPE / chainId 999), link to Dashboard/Explore.
+* `Sidebar` (dashboard-only): sections → Collections, Create, Explore.
+* `ConnectButton`: from wallet layer (RainbowKit or your connector).
+* `OwnerGate`: children render only when connected address === on‑chain `owner()`.
+* `TxDialog`: standardized modal for tx progressing → confirmed; includes explorer link.
+
+### 2) Primitives & Utilities
+
+* `Card`, `Button`, `Tabs`, `Accordion`, `Badge`, `Tooltip`, `Skeleton`, `Modal`.
+* Form stack: `Form`, `FormField`, `Input`, `Textarea`, `NumberInput`, `Select`, `Switch`, `Checkbox` (react-hook-form + zod).
+* Data display: `DataTable` (with pagination), `EmptyState`, `ProgressBar`, `Tag`.
+* Upload: `FileDropzone` (drag-drop folder), `UploadProgress`.
+
+### 3) Create Wizard (4 steps)
+
+* `CreateStepper`: steps indicator with route state persistence.
+* **Step 1 — `CollectionDetailsForm`**
+
+  * Fields: name, symbol, description, maxSupply, mintPrice, royaltyBps, treasuryAddress, reveal method, baseURI strategy.
+  * Phases: array editor (name, start, end, allowlist, cap per wallet).
+  * Save as draft to Firestore.
+* **Step 2 — `AssetsUploadPanel`**
+
+  * `FileDropzone` accepts a **folder** with `/images` and `/metadata`.
+  * `AssetGrid` (virtualized) thumbnails; `AssetEditModal` to tweak attributes per item (optional).
+  * `IpfsUploadPanel` with **Upload to IPFS** button, progress, and result fields:
+
+    * `assetsCid`, `metadataCid` (copy affordance), optional gateway preview.
+* **Step 3 — `DeploySummary`**
+
+  * Read-only table of parameters; `DeployButton` calls `Factory.deployCollection(...)`.
+  * `DeployLog` shows submitted/confirmed + receipt hash.
+* **Step 4 — `OwnershipTransferCallout`**
+
+  * `AcceptOwnershipButton` → calls `acceptOwnership()` if needed.
+  * On success → deep link to the collection’s Manage pages.
+
+### 4) Dashboard
+
+* `CollectionsGrid`: cards for the owner’s collections.
+
+  * Card contents: name, address (copy), status badge, quick actions (Manage Collection / Manage Mint / View Mint Page).
+* Manage Collection (`/manage-collection`)
+
+  * `ContractStatePanel`: pause/unpause, setBaseURI, setRoyalty (if applicable).
+  * `AllowlistEditor`: add/remove addresses, import CSV, write on-chain or upload to server for merkle generation.
+  * `PublicMintToggle`: flips public mint status.
+  * `FeatureOnExploreToggle`: writes `featureOnExplore` to Firestore.
+* Manage Mint (`/manage-mint`)
+
+  * `HeroBannerUploader` (full-bleed), `AvatarUploader`, `InfoCardForm` (name/desc/links).
+  * `MintPhaseEditor`: edit local view model + persist.
+  * `LastMintedPreview`: reads last token minted (via events) and displays card + attributes.
+  * `MintedGrid`: paginated (infinite scroll) list of minted tokens.
+
+### 5) Explore
+
+* `FeaturedCarousel`: curated/algorithmic featured.
+* `CollectionBannerCard`: hero crop + title + creator; clicks through to mint page.
+* Filters: search by name/symbol; only HyperEVM chain.
+
+### 6) Public Mint Page
+
+* `HeroBanner` (full-bleed), overlapped `AvatarInfoCard` (title, creator, supply, links).
+* `MintPanel`: quantity selector, price, phase status, Connect + Mint button.
+* `PhaseTimeline`: current/Upcoming/Ended phases.
+* `NftPreview`: shows most recent mint with attributes.
+* `NftGrid`: paginated thumbnails linking to token detail modal.
+
+---
+
+## C) Wireframe Notes (developer-readable)
+
+### `/` Landing
+
+* Above the fold: animated logo (Lottie/GIF/Canvas), bold headline ("Launch NFT collections on HyperEVM"), CTA → `/create`.
+* Secondary row: 3 feature cards (Deploy in minutes • Pinata/IPFS uploads • Owner-gated management).
+
+### `/create` wizard
+
+* Sticky right rail: **Upload status** (if any), **CIDs** once available.
+* Main pane: step content with dense forms but grouped via tabs: Basics • Phases • Royalties • Advanced.
+* Top shows Stepper with step names; disable next if zod validation fails.
+
+### `/dashboard`
+
+* Empty state if none: "No collections yet" + CTA to Create.
+* Grid: 3-up cards with quick status.
+
+### Manage Collection
+
+* 2-column layout:
+
+  * Left: On-chain controls (modular panels with write buttons → `TxDialog`).
+  * Right: Explore visibility + metadata helpers (feature toggle, links, support).
+
+### Manage Mint
+
+* Header: hero preview with overlay edit action.
+* Tabs: Mint Settings • Phases • Preview • Minted.
+
+### `/explore`
+
+* Top: `FeaturedCarousel`, under it a responsive grid of `CollectionBannerCard`s.
+
+### `/collection/[address]`
+
+* Hero (top 40vh) → overlapped `AvatarInfoCard` left; `MintPanel` sticky on the right.
+* Below: `PhaseTimeline`, `NftPreview`, `NftGrid`.
+
+---
+
+## D) State & Data (Firestore)
+
+**Collections** `/collections/{address}`
+
+* `ownerAddress`
+* `name`, `symbol`, `description`
+* `totalSupply`, `mintPrice`, `royaltyBps`
+* `assetsCid`, `metadataCid`, `imageCid?`
+* `phases: [{name,start,end,allowlist,cap}]`
+* `status: "draft" | "deployed" | "paused"`
+* `featureOnExplore: boolean`
+* `createdAt`, `updatedAt`
+
+**Mints** `/collections/{address}/mints/{tokenId}`
+
+* `minter`, `txHash`, `timestamp`, `attributes[]`
+
+**Users** `/users/{address}`
+
+* `displayName`, `avatar`, `createdAt`
+
+**Rules (sketch)**
+
+* Only `ownerAddress` can write its collection doc; reads public if `featureOnExplore` true or user is owner.
+* Writes validated (checksum addresses, server timestamps).
+
+---
+
+## E) Contract Touchpoints (front end)
+
+From a typed SDK wrapper (viem):
+
+* `deployCollection(args)` → returns address; listen for `CollectionDeployed(address, owner, cids)`.
+* `acceptOwnership()`
+* `setPublicMint(bool)`
+* `setAllowlist(merkleRoot | addresses[])` (implementation-dependent)
+* `pause()/unpause()`
+
+Emit events at deploy and on state changes to let the UI update Firestore.
+
+---
+
+## F) Environment Variables (examples)
+
+```
+NEXT_PUBLIC_CHAIN_ID=999
+NEXT_PUBLIC_RPC_URL=https://rpc.hyperliquid.xyz/evm
+NEXT_PUBLIC_EXPLORER=https://hyperevmscan.io
+
+PINATA_JWT=...             # use server/callable endpoint
+FIREBASE_API_KEY=...
+FIREBASE_PROJECT_ID=...
+FIREBASE_APP_ID=...
+
+# optional if/when explorer API is scriptable
+HYPEREVMSCAN_API_KEY=...
+```
+
+---
+
+## G) One‑Page Agent Build Spec (execute top-to-bottom)
+
+**Goal:** Ship UI first, wired to wallet + Firestore + Pinata, then contracts.
+
+1. **Scaffold app & layout**
+
+   * Create Next.js app with Tailwind + shadcn/ui. Add `AppShell`, `TopNav` (ConnectButton), and routes.
+   * Add HyperEVM chain (999) and RPC; show NetworkBadge.
+   * Deploy a blank shell to Firebase Hosting.
+
+2. **Core primitives**
+
+   * Implement Card/Button/Modal/Tabs/Form primitives; add Toaster.
+
+3. **Create Wizard**
+
+   * Step 1: `CollectionDetailsForm` (zod validation); save drafts to Firestore.
+   * Step 2: `AssetsUploadPanel` with drag‑drop folder; call Pinata; show progress; persist resulting `assetsCid`/`metadataCid`.
+   * Step 3: `DeploySummary` (no contract call yet — just UI + state).
+   * Step 4: `OwnershipTransferCallout` (UI only).
+
+4. **Dashboard**
+
+   * `CollectionsGrid` reading from Firestore; placeholder Manage pages.
+
+5. **Explore + Mint Page**
+
+   * `Explore` grid/featured; `collection/[address]` with hero + `MintPanel` UI (no on-chain writes yet).
+
+6. **Contracts integration**
+
+   * Add ABIs to SDK; implement `deployCollection`, `acceptOwnership`, `setPublicMint`, `pause`.
+   * Wire Step 3 → Factory call; show `TxDialog` with explorer link; on success write to Firestore.
+   * Wire Manage pages with OwnerGate checks.
+
+7. **Verification flow (manual in UI)**
+
+   * Add a post‑deploy checklist modal linking to Hyperevmscan Verify & Publish; store verified flag in Firestore.
+
+8. **Polish & CI**
+
+   * Add Firestore rules + indexes; Cloud Build → Firebase Hosting on PRs.
+   * Add empty states, loading skeletons, error toasts.
+
+**Deliverables per step**
+
+* Deployed preview URL
+* Screenshots of each route state
+* Minimal e2e check (connect → create draft → upload → see CIDs → deploy on testnet/mainnet → accept ownership)
+
+---
+
+## H) File/Folder Skeleton
+
+```
+apps/web/
+  app/
+    layout.tsx
+    page.tsx                  # landing
+    create/
+      page.tsx
+      details.tsx
+      upload.tsx
+      deploy.tsx
+      setup.tsx
+    dashboard/page.tsx
+    dashboard/[address]/manage-collection/page.tsx
+    dashboard/[address]/manage-mint/page.tsx
+    explore/page.tsx
+    collection/[address]/page.tsx
+  components/
+    shell/AppShell.tsx
+    shell/TopNav.tsx
+    shell/Sidebar.tsx
+    wallet/ConnectButton.tsx
+    wallet/NetworkBadge.tsx
+    wallet/OwnerGate.tsx
+    tx/TxDialog.tsx
+    create/* (step components)
+    dashboard/*
+    explore/*
+    mint/*
+  lib/
+    chains.ts                 # HyperEVM config
+    viem.ts                   # clients
+    firestore.ts              # CRUD ops
+    pinata.ts                 # upload helpers
+  styles/globals.css
+  env.d.ts
+
+packages/sdk/
+  abis/*                      # Factory, Implementation
+  index.ts                    # typed wrappers
+
+infra/firebase/
+  firebase.json
+  firestore.rules
+  firestore.indexes.json
+```
+
+---
+
+## I) Acceptance Criteria (UI-first milestone)
+
+* Landing renders with Connect + CTA.
+* Create wizard completes Steps 1–2 with working Pinata uploads and visible CIDs.
+* Dashboard shows created drafts; Explore grid renders from `featureOnExplore` docs.
+* Public mint page renders with hero, info card, and placeholder MintPanel.
+* Deployed to Firebase Hosting (preview URL) with basic Firestore rules.
+
+---
+
+## J) Notes
+
+* Keep all chain constants centralized in `lib/chains.ts`.
+* Prefer serverless callable for Pinata to avoid exposing secrets.
+* For huge folders, provide a fallback "advanced upload" dialog (local IPFS → Pinata flow) and a help link.
+* Owner gating: never trust Firestore; always confirm on-chain `owner()` before showing privileged actions.
+
+---
+
+## K) ABI-tailored UI spec (Factory + Implementation)
+
+### Contracts detected
+
+* **Factory:** `HyperLaunch721FactoryV2`
+
+  * Key functions/events:
+
+    * `deployDrop(string name, string symbol, uint256 maxSupply, string baseURI, address payout, address royaltyReceiver, uint96 royaltyBps, IHyperLaunchERC721.Sale sale, bytes32 merkleRoot, bytes32 salt) → address drop`
+    * `predictDeterministicAddress(bytes32 salt) → address`
+    * `updatePlatformFee(address receiver, uint96 bps)`
+    * Views: `getCreatorDrops(address) → address[]`, `getAllDropsCount()`, `getDropsPaginated(uint256 offset, uint256 limit) → address[]`
+    * Events: `DropDeployed(creator, drop, salt)`, `PlatformFeeUpdated(receiver, bps)`, `OwnershipTransferred(old, new)`
+* **Implementation (clone):** `HyperLaunchERC721_ImplV2`
+
+  * **initialize** params (called by factory):
+
+    * `name, symbol, maxSupply, baseURI, payout, royaltyReceiver, royaltyBps, Sale sale, bytes32 merkleRoot, address platformFeeReceiver, uint96 platformFeeBps`
+  * Minting:
+
+    * `mintPublic(uint32 quantity)` **payable**
+    * `mintAllowlist(uint32 quantity, bytes32[] proof)` **payable**
+    * `mintOwner(address to, uint32 quantity)` (owner only)
+  * Management:
+
+    * `updateSaleConfig(Sale sale)` **payable**
+    * `updateBaseURI(string baseURI)` **payable**
+    * `updateMerkleRoot(bytes32 merkleRoot)` **payable**
+    * `updatePayoutAddress(address payout)` **payable**
+    * `setDefaultRoyalty(address receiver, uint96 bps)` **payable**
+    * `pause()` / `unpause()`
+    * `withdraw()` **payable** (sends creator + platform fee)
+  * Views: `tokenURI`, `supportsInterface`
+  * Struct **Sale**:
+
+    * `publicPriceWei, allowlistPriceWei, publicStart, publicEnd, allowlistStart, allowlistEnd, maxPerWallet, maxPerTx`
+  * Events: `Minted(to, tokenId, price)`, `Withdrawn(creatorAmount, platformAmount)`, `SaleConfigUpdated(sale)`, `BaseURIUpdated`, `MerkleRootUpdated`, `PayoutAddressUpdated`, `ProofUsed`
+  * Errors worth surfacing in UI: `SaleNotActive`, `ExceedsMaxSupply`, `ExceedsMaxPerWallet`, `ExceedsMaxPerTx`, `InvalidPayment`, `InvalidProof`, `WithdrawFailed`, `AllowlistNotActive`, `ProofAlreadyUsed`
+
+### Create Wizard ↔ ABI mapping
+
+**Step 1 — Details form → Factory.deployDrop args**
+
+* Basics: `name`, `symbol`, `maxSupply`
+* Base media: `baseURI` (temporary local until IPFS set in Step 2; allow edit later via `updateBaseURI`)
+* Payout & royalties: `payout`, `royaltyReceiver`, `royaltyBps`
+* **Sale** struct group:
+
+  * `publicPriceWei`, `allowlistPriceWei`
+  * `publicStart`, `publicEnd` (UTC ms — convert to `uint64` seconds)
+  * `allowlistStart`, `allowlistEnd`
+  * `maxPerWallet`, `maxPerTx`
+* Allowlist: upload CSV → build Merkle → store root as `merkleRoot` (also persist the address list to Firestore for UI). Provide a "No allowlist" option → root = `0x0`.
+* Salt: auto-generate `bytes32` from `{creator}:{name}:{timestamp}` for deterministic predict; show `predictDeterministicAddress(salt)` preview.
+
+**Step 2 — Upload → IPFS (Pinata)**
+
+* Upload `/images` and `/metadata` directories → return `assetsCid`, `metadataCid`.
+* After upload, set suggested `baseURI` = `ipfs://{metadataCid}/` (user can override in Step 3 or later via `updateBaseURI`).
+
+**Step 3 — Deploy**
+
+* Build call:
+
+  * `deployDrop(name, symbol, maxSupply, baseURI, payout, royaltyReceiver, royaltyBps, sale, merkleRoot, salt)`
+* UX:
+
+  * Show `TxDialog` with status, then link to explorer for the **new drop**.
+  * Listen for `DropDeployed` → capture `drop` address and write full doc to Firestore.
+
+**Step 4 — Set Up Collection**
+
+* If your flow requires owner acceptance, present `acceptOwnership()`; otherwise deep-link to Manage pages.
+
+### Manage Collection UI ↔ Implementation
+
+* **Pause/Unpause** → `pause()` / `unpause()`
+* **Public mint toggle** → modify `Sale.publicStart/publicEnd` (set window) and call `updateSaleConfig(sale)`
+* **Allowlist controls**:
+
+  * Upload addresses → compute Merkle → `updateMerkleRoot(root)`
+  * Allowlist window → edit `allowlistStart/allowlistEnd` in `Sale` and call `updateSaleConfig`
+* **Quantity caps** → edit `maxPerWallet` / `maxPerTx` → `updateSaleConfig`
+* **Royalties** → `setDefaultRoyalty(receiver, bps)`
+* **BaseURI** → `updateBaseURI(newBaseURI)`
+* **Payout address** → `updatePayoutAddress(address)`
+* **Withdraw** → `withdraw()`; UI shows split `(creator, platform)` from receipt `Withdrawn` event.
+
+### Public Mint Page ↔ Implementation
+
+* **Mint Public** → `mintPublic(quantity)` with `value = publicPriceWei * quantity`
+* **Mint Allowlist** → `mintAllowlist(quantity, proof)` with `value = allowlistPriceWei * quantity`
+
+  * Build proof from addresses saved in Firestore or user-provided leaf; cache proof client-side.
+* **Owner Mint** (hidden unless `OwnerGate`) → `mintOwner(to, quantity)`
+* **Last Minted Preview** → subscribe to `Minted` events (or read `totalSupply()` if present and `tokenURI(lastId)`). If `totalSupply` is not exposed, maintain an index from events in Firestore.
+
+### Error → UX mapping
+
+* `SaleNotActive` → show phase timing; button disabled with countdown.
+* `ExceedsMaxSupply` → show "Sold out" state.
+* `ExceedsMaxPerWallet/PerTx` → show limits inline.
+* `InvalidPayment` → recalc expected `value` and show helper.
+* `InvalidProof/AllowlistNotActive/ProofAlreadyUsed` → explain allowlist requirements and show which wallet is connected.
+* `WithdrawFailed` → advise trying a smaller gas tip / check payout address.
+
+### SDK wrapper signatures (TypeScript, viem-style)
+
+```ts
+// Factory
+deployDrop(args: {
+  name: string; symbol: string; maxSupply: bigint; baseURI: string;
+  payout: `0x${string}`; royaltyReceiver: `0x${string}`; royaltyBps: number;
+  sale: {
+    publicPriceWei: bigint; allowlistPriceWei: bigint;
+    publicStart: bigint; publicEnd: bigint;
+    allowlistStart: bigint; allowlistEnd: bigint;
+    maxPerWallet: number; maxPerTx: number;
+  };
+  merkleRoot: `0x${string}`; salt: `0x${string}`;
+}): Promise<`0x${string}`>; // returns drop address
+
+predictDeterministicAddress(salt: `0x${string}`): Promise<`0x${string}`>;
+updatePlatformFee(receiver: `0x${string}`, bps: number): Promise<void>;
+
+// Drop (Implementation)
+mintPublic(qty: number, value: bigint): Promise<void>;
+mintAllowlist(qty: number, proof: `0x${string}`[]): Promise<void>;
+mintOwner(to: `0x${string}`, qty: number): Promise<void>;
+updateSaleConfig(sale: Sale): Promise<void>;
+updateBaseURI(baseURI: string): Promise<void>;
+updateMerkleRoot(root: `0x${string}`): Promise<void>;
+updatePayoutAddress(addr: `0x${string}`): Promise<void>;
+setDefaultRoyalty(receiver: `0x${string}`, bps: number): Promise<void>;
+pause(): Promise<void>; unpause(): Promise<void>;
+withdraw(): Promise<void>;
+```
+
+### Form validation rules (critical)
+
+* Addresses: checksum validate; disallow zero address except when explicitly supported.
+* `royaltyBps`: 0–10000.
+* `publicPriceWei`, `allowlistPriceWei`: non‑negative; use `parseEther` helper in UI.
+* Times: enforce `start < end`; show local timezone but store seconds (UTC).
+* Merkle: if allowlist enabled but empty → block save; else let root be zero to disable allowlist path.
+
+### Indexing & Events → Firestore
+
+* On `DropDeployed`: write `/collections/{drop}` with all args + creator.
+* On `SaleConfigUpdated`: patch the sale fields.
+* On `BaseURIUpdated/MerkleRootUpdated/PayoutAddressUpdated`: patch fields for admin UI.
+* On `Minted`: append `/mints/{tokenId}` with `minter`, `price`, `timestamp`; update a `lastMinted` pointer for the preview.
+* On `Withdrawn`: log split amounts for accounting UI.
+
+### Explorer/Chain hooks in UI
+
+* Chain constants: HyperEVM Chain 999, RPC, explorer base.
+* Every tx modal includes an **Explorer** link to the hash and to the contract address.
+* Add a post‑deploy **Verify** panel linking to the explorer’s **Verify & Publish (Standard JSON‑Input)** screen.
+
+---
+
+## L) Utilities & Schemas (companion doc)
+
+To keep the Build Spec readable, the full implementations live in a companion canvas doc titled **“Merkle Utility + Zod Schemas — Drop‑in.”** It contains ready‑to‑paste files:
+
+* `lib/merkle.ts` — CSV → checksummed addresses → Merkle root & per‑address proofs (Solidity‑compatible hashing).
+* `lib/schemas.ts` — Zod schemas for Details/Sale forms (type‑safe validation and UI gating).
+* `lib/salt.ts` — deterministic salt helper for `predictDeterministicAddress` previews.
+
+**How to use in the Create wizard:**
+
+1. Parse CSV allowlist → `root`/`getProof` via `merkleFromCsv()`.
+2. Validate form with `DetailsSchema`; block Next until valid.
+3. Build `sale` object (seconds/wei as strings → `bigint` at callsite) and call `Factory.deployDrop(...)`.
+
+If you prefer, I can inline these files here, but keeping them separate makes this spec easier to navigate.

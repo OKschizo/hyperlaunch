@@ -1,0 +1,186 @@
+# Merkle Builder Utility (CSV → Root/Proofs) + Zod Schemas
+
+These are **drop‑in files** for your Create wizard & allowlist flow. They run in the browser (PapaParse, merkletreejs, viem) and are Solidity‑compatible for address hashing (`keccak256(abi.encodePacked(address))`).
+
+> Install deps (TS projects get types automatically):
+>
+> ```bash
+> pnpm add merkletreejs papaparse viem zod
+> # or: npm i merkletreejs papaparse viem zod
+> ```
+
+---
+
+## `lib/merkle.ts`
+
+```ts
+// lib/merkle.ts
+// Build Merkle roots & proofs for allowlists from CSV or string arrays.
+// Uses merkletreejs + keccak256 (Solidity-compatible hashing of addresses).
+
+import Papa from 'papaparse';
+import { MerkleTree } from 'merkletreejs';
+import { getAddress, keccak256 as viemKeccak256, hexToBytes } from 'viem';
+
+export type AllowlistInput = string[]; // array of addresses (may include header row)
+
+export interface MerkleArtifacts {
+  root: `0x${string}`;
+  leaves: `0x${string}`[];       // hashed leaves
+  addresses: `0x${string}`[];    // checksummed addresses
+  getProof: (address: string) => `0x${string}`[];
+}
+
+/** Normalize a CSV string into a clean list of checksummed addresses. */
+export function addressesFromCsv(csv: string): `0x${string}`[] {
+  const { data } = Papa.parse<string[]>(csv.trim(), { skipEmptyLines: true });
+  const flat = (data as string[][]).flat();
+  const addrs = flat
+    .map((s) => String(s).trim())
+    .filter((s) => s)
+    .filter((s) => /^0x[a-fA-F0-9]{40}$/.test(s));
+  // getAddress() throws if invalid & returns checksummed address
+  return addrs.map((a) => getAddress(a));
+}
+
+/** Leaf hash: keccak256(abi.encodePacked(address)) */
+export function leafHash(addr: string): `0x${string}` {
+  // viem: hashing raw 20-byte address (abi.encodePacked(address))
+  const bytes = hexToBytes(getAddress(addr));
+  const digest = viemKeccak256(bytes);
+  return digest as `0x${string}`;
+}
+
+export function buildMerkle(addresses: string[]) {
+  const normalized = [...new Set(addresses.map(getAddress))];
+  const leaves = normalized.map(leafHash);
+  // merkletreejs accepts Buffer or hex; we use a Buffer-based hash fn that returns Buffer
+  const hashFn = (data: Buffer) => Buffer.from(viemKeccak256(data).slice(2), 'hex');
+  const tree = new MerkleTree(leaves.map((h) => Buffer.from(h.slice(2), 'hex')), hashFn, {
+    sortLeaves: true,
+    sortPairs: true,
+    sort: true,
+  });
+  const root = (`0x${tree.getRoot().toString('hex')}`) as `0x${string}`;
+
+  const addressToLeaf = new Map(normalized.map((a, i) => [a, leaves[i]]));
+  const getProof = (address: string) => {
+    const target = addressToLeaf.get(getAddress(address));
+    if (!target) return [] as `0x${string}`[];
+    const proof = tree
+      .getProof(Buffer.from(target.slice(2), 'hex'))
+      .map((p) => `0x${p.data.toString('hex')}` as `0x${string}`);
+    return proof;
+  };
+
+  return { root, leaves, addresses: normalized as `0x${string}`[], getProof };
+}
+
+/** Convenience: CSV → artifacts */
+export function merkleFromCsv(csv: string) {
+  const addrs = addressesFromCsv(csv);
+  return buildMerkle(addrs);
+}
+```
+
+---
+
+## `lib/schemas.ts` (Zod schemas for UI forms)
+
+```ts
+// lib/schemas.ts
+import { z } from 'zod';
+
+export const Address = z.string().regex(/^0x[a-fA-F0-9]{40}$/,'Invalid address');
+export const BasisPoints = z.number().int().min(0).max(10_000);
+export const WeiString = z.string().regex(/^\d+$/,'Enter a non-negative integer wei value');
+
+export const SaleSchema = z.object({
+  publicPriceWei: WeiString,          // store as string; convert to bigint at callsite
+  allowlistPriceWei: WeiString,
+  publicStart: z.number().int().nonnegative(),   // seconds since epoch (UTC)
+  publicEnd: z.number().int().nonnegative().refine((v, ctx) => v === 0 || v > ctx.parent.publicStart, 'End must be > start or 0 for open-ended'),
+  allowlistStart: z.number().int().nonnegative(),
+  allowlistEnd: z.number().int().nonnegative().refine((v, ctx) => v === 0 || v > ctx.parent.allowlistStart, 'End must be > start or 0'),
+  maxPerWallet: z.number().int().min(0).max(10_000),
+  maxPerTx: z.number().int().min(0).max(10_000),
+});
+
+export const DetailsSchema = z.object({
+  name: z.string().min(1),
+  symbol: z.string().min(1).max(12),
+  description: z.string().max(1000).optional(),
+  maxSupply: z.number().int().min(1).max(1_000_000),
+  baseURI: z.string().url().or(z.literal('')).optional(),
+  payout: Address,
+  royaltyReceiver: Address,
+  royaltyBps: BasisPoints,
+  sale: SaleSchema,
+  // Merkle root optional if no allowlist
+  merkleRoot: z.string().regex(/^0x[0-9a-fA-F]{64}$/).or(z.literal('0x0000000000000000000000000000000000000000000000000000000000000000')),
+  salt: z.string().regex(/^0x[0-9a-fA-F]{64}$/),
+});
+
+export type Details = z.infer<typeof DetailsSchema>;
+export type Sale = z.infer<typeof SaleSchema>;
+```
+
+---
+
+## `lib/salt.ts` (deterministic salt helper)
+
+```ts
+// lib/salt.ts
+import { keccak256, stringToHex } from 'viem';
+
+export function makeSalt(creator: `0x${string}`, name: string, timestamp: number = Date.now()): `0x${string}` {
+  const payload = `${creator.toLowerCase()}:${name}:${timestamp}`;
+  return keccak256(stringToHex(payload));
+}
+```
+
+---
+
+## Minimal usage in the Create Wizard
+
+```ts
+import { DetailsSchema } from '@/lib/schemas';
+import { makeSalt } from '@/lib/salt';
+import { merkleFromCsv } from '@/lib/merkle';
+
+// 1) Parse CSV → root
+const { root, getProof } = merkleFromCsv(csvText);
+
+// 2) Validate form
+const parsed = DetailsSchema.parse({
+  ...formValues,
+  merkleRoot: root,
+  salt: makeSalt(creatorAddress, formValues.name),
+});
+
+// 3) Build sale args as bigint
+const sale = {
+  publicPriceWei: BigInt(parsed.sale.publicPriceWei),
+  allowlistPriceWei: BigInt(parsed.sale.allowlistPriceWei),
+  publicStart: BigInt(parsed.sale.publicStart),
+  publicEnd: BigInt(parsed.sale.publicEnd),
+  allowlistStart: BigInt(parsed.sale.allowlistStart),
+  allowlistEnd: BigInt(parsed.sale.allowlistEnd),
+  maxPerWallet: parsed.sale.maxPerWallet,
+  maxPerTx: parsed.sale.maxPerTx,
+};
+
+// 4) Call factory with args
+// writeContract({ functionName: 'deployDrop', args: [...] })
+```
+
+---
+
+## Notes & gotchas
+
+* **Hashing parity:** leaves match Solidity’s `keccak256(abi.encodePacked(address))` by hashing the raw 20‑byte address (`hexToBytes(address)`) with viem’s `keccak256`. Test one sample in JS & Solidity to confirm.
+* **Sorting:** `sortLeaves` + `sortPairs` enabled. Ensure your Solidity verification uses sorted pairs as well.
+* **PapaParse:** runs in the browser, handles very large CSVs; enable worker mode for massive files.
+* **Zero root:** allow `0x00..00` to disable allowlist path.
+* **Time fields:** store seconds (UTC) for contract calls; format locally for UI.
+* **Validation:** Zod returns typed data—block Next until valid.

@@ -1,0 +1,1 @@
+- Implement Public Mint page layout per STYLEGUIDE Example 3
